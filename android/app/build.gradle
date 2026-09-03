@@ -1,0 +1,34 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'com.robotmon.rbm'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId "com.robotmon.rbm"
+        minSdk 26
+        targetSdk 34
+        versionCode 2
+        versionName "1.1"
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+}
+
+dependencies {
+    implementation 'androidx.appcompat:appcompat:1.7.0'
+    implementation 'androidx.activity:activity:1.9.0'
+
+    // OpenCV for Android provides HoughCircles/cvtColor/blur, used to replace
+    // the Auto.js houghCircles()/bgrToGray()/smooth() calls from index.js.
+    // Verify the current artifact coordinates at https://opencv.org/releases/
+    // before building -- some OpenCV releases publish the AAR to Maven Central
+    // under these coordinates, others require importing the SDK as a local
+    // module instead.
+    implementation 'org.opencv:opencv:4.9.0'
+}
