@@ -42,7 +42,7 @@ public class BotSettings {
     public int noSkillLastFeverSec = 0;
     public boolean useFan = false;
     public boolean clearBubbles = false;
-
+    public boolean skillAutoTap = true;
     // --- post-game bonus item toggles ---
     public boolean bonus5to4 = false;
     public boolean bonusScore = false;

@@ -35,6 +35,8 @@ public class BotContext {
     public long noSkillLastFeverSec = 0;
     public boolean useFan = false;
     public boolean clearBubbles = false;
+    /** Ported from Tsum.prototype.skillAutoTap */
+    public volatile boolean skillAutoTap = true;
     /** Kept false (matches the original's default): no non-root is app foregrounded / launch app" support. See README. */
     public boolean autoLaunch = false;
     /** Whether doHeartSending) keeps scrolling toward zero-score friends instead of stopping once it sees one. */ 

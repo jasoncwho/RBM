@@ -42,6 +42,15 @@ public class OverlayControlService extends Service {
     private static final int ICON_SIZE_DP = 48;
     private static final int ICON_MARGIN_DP = 6;
 
+    // Handled in onStartCommand() to stop from the notification action instead of
+    // the floating overlay icon. While the accessibility service is continuously
+    // dispatching synthetic swipe gestures, that gee stream can occupy the
+    // touch input pipeline almost 100% of the time, so a real tap on the small
+    // Floating stop icon can go undelivered fhile (needing many attempts to
+    // land in a gap). The notification shade is a seperate system-UI surface and 
+    // its action buttons are delivered via pendingIntent, not raw touch dispatch,
+    // so this path stop reliably even while swiping is active.
+    public static final String ACTION_STOP = "com.robotmon.rbm.overlay.ACTION_STOP";
     private WindowManager windowManager;
     private LinearLayout container;
     private WindowManager.LayoutParams layoutParams;
@@ -54,6 +63,10 @@ public class OverlayControlService extends Service {
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
+        if (intent != null && ACTION_STOP.equals(intent.getAction())) {
+            closeRbmCompletely();
+            return START_NOT_STICKY;
+        }
         startForeground(NOTIFICATION_ID, buildNotification());
         if (container == null) {
             showOverlay();
@@ -188,10 +201,14 @@ public class OverlayControlService extends Service {
         Intent contentIntent = new Intent(this, MainActivity.class);
         PendingIntent pendingIntent = PendingIntent.getActivity(this, 0, contentIntent,
                 Build.VERSION.SDK_INT >= Build.VERSION_CODES.M ? PendingIntent.FLAG_IMMUTABLE : 0);
+        Intent stopIntent = new Intent(this, OverlayControlService.class).setAction(ACTION_STOP);
+        PendingIntent stopPendingIntent = PendingIntent.getService(this, 0, stopIntent,
+                Build.VERSION.SDK_INT >= Build.VERSION_CODES.M ? PendingIntent.FLAG_IMMUTABLE : 0);
         return new NotificationCompat.Builder(this, CHANNEL_ID)
                 .setContentTitle("RBM floating controls active")
                 .setSmallIcon(android.R.drawable.ic_menu_compass)
                 .setContentIntent(pendingIntent)
+                .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Stop", stopPendingIntent)
                 .setOngoing(true)
                 .build();
     }

@@ -12,6 +12,7 @@ import java.util.List;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
+
 /**
  * Dedicated consumer thread: takes queued SwipeTasks and performs the actual
  * on-screen tap/drag via the AccessibilityService's gesture dispatcher.
@@ -29,8 +30,14 @@ public class SwipeExecutor {
     private final AtomicBoolean running = new AtomicBoolean(false);
     private Thread thread;
 
+    private volatile Runnable postLinkHook;
+
     public SwipeExecutor(SwipeQueue queue) {
         this.queue = queue;
+    }
+
+    public void setPostLinkHook(Runnable hook) {
+        this.postLinkHook = hook;
     }
 
     public void start() {
@@ -94,5 +101,10 @@ public class SwipeExecutor {
         // next queued swipe never overlaps the current one on screen.
         boolean completed = service.dispatchGestureBlocking(gesture);
         Log.i(TAG, "link swipe points=" + points.size() + " completed=" + completed);
+
+        Runnable hook = postLinkHook;
+        if (hook != null) {
+            hook.run();
+        }
     }
 }

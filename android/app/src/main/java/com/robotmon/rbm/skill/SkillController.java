@@ -18,11 +18,15 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Skill readiness checks and activation dispatch. Ported from
- * Tsum.prototype.useSkill()/isSkillActive()/checkSkillReadiness()/
- * fanWouldBeWasted()/clearAllBubbles()/popGameBubbles() in index.js.
+ * * Tsum.prototype.useSkill()/isSkillActive()/checkSkillReadiness()
+ * * fanWouldBewasted()/clearAllBubbles()/popGameBubbles() in index.js.
  */
 public class SkillController {
     private final BotContext ctx;
@@ -32,6 +36,44 @@ public class SkillController {
 
     /** Bubbles found by the most recent on-demand board scan (e.g., by CptlySkillHandler). Ported from this.gameBubbles. */
     private volatile List<Bubble> gameBubbles = Collections.emptyList();
+
+    // Throttle for maybeAutoTapSkill(), ported from this._lastSkillAutoTap.
+    private final AtomicLong lastSkillAutoTap = new AtomicLong(0);
+    private static final long SKILL_AUTO_TAP_INTERVAL_MS = 500;
+
+    // maybeAutoTapSkill() is called from SwipeExecutor's swipe-consumer thread and
+    // must return immediately, so the actual activation (which for some skill
+    // types runs several seconds of choreography, e.g. CptlySkillHandler's
+    // ctx.sleep(2100)) runs on this dedicated thread instead -- otherwise that
+    // whole duration would stall board swiping. autoTapInFlight prevents a second
+    // activation from being submitted while one is still running (the 500ms
+    // throttle alone isn't enough once a fire can outlast the throttle window).
+    private final ExecutorService autoTapExecutor =
+        Executors.newSingleThreadExecutor(r -> new Thread(r, "SkillAutoTap"));
+    private final AtomicBoolean autoTapInFlight = new AtomicBoolean(false);
+
+    // Non-burst skills read 'active' on the gauge for a while into their own
+    // outro animation, well after useSkill() has returned -- see the
+    // block_tiara_minnie_plus_s comment in index.js ("the gauge still reads
+    // active through the outro"), which JS papers over only for that one skill
+    // by always reporting "did not fire". Every non-burst handler here has the
+    // same risk (cinderella/cpt_ly/rapunzel's own choreography sleeps aren't
+    // guaranteed to outlast the game's own visual outro), so instead of a
+    // per-handler hack, once a non-burst fire happens this flag blocks another
+    // one until a readiness read actually observes the gauge as not-active --
+    // i.e. confirmation the previous fire really drained it -- rather than
+    // trusting the very next read.
+    private final AtomicBoolean awaitingGaugedrop = new AtomicBoolean(false);
+
+    // Gap between a swipe's touch-up and the auto-tap skill's touch-down. Without
+    // it, dispatching a new gesture immediately after the previous one's
+    // onCompleted callback can race the game's own input handling of that
+    // swipe's last segment (the callback firing doesn't guarantee the app has
+    // finished processing the touch stream yet), can leave the swipe
+    // looking like it never completed on screen. Not present in the original
+    // script -- Auto.js's raw input injection didn't have this gesture-queue
+    // handoff, so this has no JS equivalent to port from.
+    private static final long SKIL_TAP_SETTLE_MS = 80;
 
     // Don't know the reason why these are checked instead of the "active skill" colors,
     // but hopefully for a good reason -- ported verbatim from isSkillActive()/checkSkillReadiness().
@@ -133,25 +175,118 @@ public class SkillController {
         boolean matchesTight = false;
         boolean matchesLoose = false;
         for (RgbColor notActive : SKILL_NOT_ACTIVE_COLORS) {
-            if (ColorUtils.isSameColor(notActive, c, 25)) { matchesTight = true; }
-            if (ColorUtils.isSameColor(notActive, c, 60)) { matchesLoose = true; }
+            if (ColorUtils.isSameColor(notActive, c, 25)) matchesTight = true;
+            if (ColorUtils.isSameColor(notActive, c, 60)) matchesLoose = true;
         }
-        if (!matchesLoose) { return "active"; }
-        if (!matchesTight) { return "almost"; }
+        if (!matchesLoose) return "active";
+        if (!matchesTight) return "almost";
         return "far";
     }
 
-    /** Whether firing the fan now would be wasted -- see fanWouldBeWasted() in index.js. */
-    public boolean fanWouldBeWasted() {
+    /** Whether firing the fan now would be wasted -- see fanWouldBewasted() in index.js. */
+    public boolean fanWouldBewasted() {
         Mat img = ctx.frameHolder.getClone();
         if (img == null) {
             return false;
         }
         try {
-            return !"far".equals(checkSkillReadiness(img, ButtonCatalog.GAME_SKILL_1));
+            return "far".equals(checkSkillReadiness(img, ButtonCatalog.GAME_SKILL_1));
         } finally {
             img.release();
         }
+    }
+
+    /**
+     * Called after every swipe dispatched by SwipeExecutor (see
+     * SwipeExecutor.setPostLinkHook()). Fires the skill the instant it's
+     * ready instead of waiting for the next end-of-cycle useSkill() call.
+     * Ported from Tsum.prototype.maybeAutoTapSkill().
+     *
+     * <p>Must return fast since it runs on SwipeExecutor's swipe-consumer
+     * thread: only a cheap throttle/in-flight check happens here (an atomic
+     * read or two), and the actual activation -- which for some skill types
+     * runs several seconds of choreography -- is handed off to
+     * {@link #autoTapExecutor} so it never stalls board swiping.
+     */
+    public void maybeAutoTapSkill() {
+        if (!ctx.skillAutoTap) {
+            return;
+        }
+        long now = System.currentTimeMillis();
+        long last = lastSkillAutoTap.get();
+        if (now - last < SKILL_AUTO_TAP_INTERVAL_MS) {
+            return;
+        }
+        if (!lastSkillAutoTap.compareAndSet(last, now)) {
+            return; // another call already claimed this tick
+        }
+        // The 500ms throttle above doesn't by itself stop two activations from
+        // overlapping (firing can easily outlast 500ms), so guard re-entry too.
+        if (!autoTapInFlight.compareAndSet(false, true)) {
+            return;
+        }
+        autoTapExecutor.execute(() -> {
+            try {
+                fireAutoTapSkill();
+            } finally {
+                autoTapInFlight.set(false);
+            }
+        });
+    }
+
+    /** The actual auto-tap-skill activation; runs on {@link #autoTapExecutor}, never on the caller's thread. */
+    private void fireAutoTapSkill() {
+        if ("burst".equals(ctx.skillType) || "burst_bubbles".equals(ctx.skillType)) {
+            // A bare tap is a complete activation for burst skills, and it's a
+            // no-op while the gauge isn't full -- skip the screenshot entirely.
+            // The settle delay keeps this touch-down from landing before the
+            // system has finished delivering the just-completed swipe's
+            // touch-up to the game, which otherwise can make that swipe's
+            // final segment never register on screen.
+            ctx.sleep(SKIL_TAP_SETTLE_MS);
+            tapLogical(ButtonCatalog.GAME_SKILL_1, 10);
+            return;
+        }
+
+        // One readiness read before the full useSkill() probe (findPage plus a
+        // double gauge check, several screenshots) so the recurring cost while
+        // the gauge is still filling stays at a single screenshot.
+        Mat img = ctx.frameHolder.getClone();
+        if (img == null) {
+            return;
+        }
+        String status;
+        try {
+            status = checkSkillReadiness(img, ButtonCatalog.GAME_SKILL_1);
+        } finally {
+            img.release();
+        }
+        if (awaitingGaugedrop.get()) {
+            // Still waiting for confirmation the last fire actually drained the
+            // gauge -- only rearm once a read comes back not-active, otherwise
+            // this refires on the outro of the very activation it just did.
+            if ("active".equals(status)) {
+                awaitingGaugedrop.set(false);
+            }
+            return;
+        }
+        if (!"active".equals(status)) {
+            return;
+        }
+        // The board's about to change (skill animation covers it, tsums get
+        // cleared/rearranged, etc.), so anything SwipeExecutor still has queued
+        // was computed against the pre-skill scan -- drop it now rather than
+        // dispatch stale touches once useSkill()'s choreography finally returns.
+        RbmApp.getSwipeQueue().clear();
+        ctx.sleep(SKIL_TAP_SETTLE_MS);
+        if (useSkill()) {
+            awaitingGaugedrop.set(true);
+        }
+    }
+
+    /** Stops the background auto-tap-skill thread. Call when the bot stops (see BotOrchestrator.stop()). */
+    public void shutdown() {
+        autoTapExecutor.shutdownNow();
     }
 
     private RgbColor getColor(Mat img, ButtonPoint p) {
@@ -203,12 +338,12 @@ public class SkillController {
      * Ported from Tsum.prototype.useSkill(). {code board} from the original
      * signature is unused there too (a vestige) and is dropped here.
      */
-    public boolean useSkill() {
-        if ("no_skill".equals(ctx.skillType)) {
+      public boolean useSkill() {
+        if("no_skill".equals(ctx.skillType)) {
             return false;
         }
-        String page = ctx.pageDetector.findPage(1, 500, null);
-        if (!"GamePlaying".equals(page) && !"GamePause".equals(page)) {
+        String page = ctx.pageDetector.findPage(1,500,null);
+        if(!"GamePlaying".equals(page) && !"GamePause".equals(page)) {
             return false;
         }
 
@@ -219,7 +354,7 @@ public class SkillController {
                 return false;
             }
             boolean skillActive1;
-            try {
+            try{
                 skillActive1 = isSkillActive(img, ButtonCatalog.GAME_SKILL_1);
                 skillActive2 = "block_pair_tsum".equals(ctx.skillType) && isSkillActive(img, ButtonCatalog.GAME_SKILL_2);
             } finally {
@@ -263,6 +398,7 @@ public class SkillController {
         if (handler != null) {
             return handler.run(this, ctx);
         }
+
         return defaultHandler.run(this, ctx);
     }
 
@@ -274,13 +410,13 @@ public class SkillController {
         }
         try {
             boolean fever1 = ColorUtils.isSameColor(
-                    ctx.pageDetector.getColor(img, 340, 310), new RgbColor(0, 48, 49), 88);
+                    ctx.pageDetector.getColor(img, 348, 310), new RgbColor(0, 48, 49), 88);
             HsvColor feverRingLeft = ColorUtils.rgb2hsv(ctx.pageDetector.getColor(img, 332, 1666));
             HsvColor feverRingRight = ColorUtils.rgb2hsv(ctx.pageDetector.getColor(img, 746, 1666));
             double hueDiff = Math.min(
                     Math.abs(feverRingLeft.h - feverRingRight.h),
                     360 - Math.abs(feverRingLeft.h - feverRingRight.h));
-            boolean fever2 = hueDiff > 20;
+            boolean fever2 = hueDiff > 28;
             HsvColor feverStart = ColorUtils.rgb2hsv(ctx.pageDetector.getColor(img, 345, 1670));
             int offsetX = (int) Math.floor((733 - 345) * ctx.noSkillLastFeverSec / 10.0);
             HsvColor feverEnd = ColorUtils.rgb2hsv(ctx.pageDetector.getColor(img, 345 + offsetX, 1670));

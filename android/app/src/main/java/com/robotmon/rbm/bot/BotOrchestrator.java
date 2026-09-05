@@ -81,12 +81,19 @@ public class BotOrchestrator {
             scheduler.addTask("taskPlayGameQuick", 3000, () -> taskPlayGameQuick(newCtx, newSkillController));
         }
 
+        RbmApp.getSwipeExecutor().setPostLinkHook(newSkillController::maybeAutoTapSkill);
+
         scheduler.start();
         Log.i(TAG, "started");
     }
 
     /** Stops the scheduler and the current run's cooperative sleep loops. Ported from stop(). */
     public synchronized void stop() {
+        RbmApp.getSwipeExecutor().setPostLinkHook(null);
+        SkillController currentSkillController = skillController;
+        if (currentSkillController != null) {
+            currentSkillController.shutdown();
+        }
         BotContext current = ctx;
         if (current != null) {
             current.stop();
@@ -109,6 +116,7 @@ public class BotOrchestrator {
         target.skillLevel = settings.skillLevel;
         target.skillInterval = settings.skillWaitingTimeSec * 1000L;
         target.noSkillLastFeverSec = settings.noSkillLastFeverSec;
+        target.skillAutoTap = settings.skillAutoTap;
         target.autoLaunch = settings.autoLaunchApp;
         target.useFan = settings.useFan;
         target.clearBubbles = settings.clearBubbles;
@@ -130,8 +138,31 @@ public class BotOrchestrator {
      */
     private void taskPlayGameQuick(BotContext ctx, SkillController skillController) {
         // Debug mode: assume Tsum Tsum is already open and skip page detection/navigation.
+       // int sinceslastBubbleClear = 0;
+       // while (ctx.isRunning()) {
+       //     ctx.sleep(300);
+
         int sinceslastBubbleClear = 0;
         while (ctx.isRunning()) {
+            boolean usedSkill = false;
+            while (skillController.useSkill()) {
+                usedSkill = true;
+                if (ctx.clearBubbles) {
+                    sinceslastBubbleClear++;
+                }
+            }
+            if (ctx.clearBubbles && sinceslastBubbleClear >= 2) {
+                sinceslastBubbleClear = 0;
+                skillController.clearAllBubbles(0, 0);
+            } else if (!usedSkill) {
+                skillController.popGameBubbles();
+            }
+
+            String page = ctx.pageDetector.findPage(1, 1500, () -> ctx.setStartupPhase(true));
+            if (!"GamePlaying".equals(page) && !"GamePause".equals(page)) {
+                Log.i(TAG, "taskPlayGameQuick: game over");
+                return;
+            }
             ctx.sleep(300);
         }
     }

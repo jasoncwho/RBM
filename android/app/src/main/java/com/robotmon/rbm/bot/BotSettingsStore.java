@@ -66,6 +66,7 @@ public class BotSettingsStore {
         s.skillLevel = getNumber("skillLevel", s.skillLevel);
         s.skillType = getDropdown("skillType", s.skillType);
         s.noSkillLastFeverSec = getNumber("noSkillLastFeverSec", s.noSkillLastFeverSec);
+        s.skillAutoTap = getBoolean("skillAutoTap", s.skillAutoTap);
 
         s.receiveAllHearts = getBoolean("receiveAllHearts", s.receiveAllHearts);
         s.receiveAllHeartsMinWaitMinutes = getNumber("receiveAllHeartsMinWait", s.receiveAllHeartsMinWaitMinutes);

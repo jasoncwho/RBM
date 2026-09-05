@@ -50,8 +50,11 @@ public class RbmAccessibilityService extends AccessibilityService {
         Log.w(TAG, "Accessibility service interrupted");
     }
 
+    private final Object gestureLock = new Object();
     /** Dispatches a gesture and blocks the calling thread until it completes or times out. */
     public boolean dispatchGestureBlocking(GestureDescription gesture){
+        synchronized(gestureLock) {
+    
         CountDownLatch latch = new CountDownLatch (1);
         boolean accepted = dispatchGesture(gesture, new GestureResultCallback(){
             @Override
@@ -73,6 +76,7 @@ public class RbmAccessibilityService extends AccessibilityService {
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             return false;
+        }
         }
     }
 }

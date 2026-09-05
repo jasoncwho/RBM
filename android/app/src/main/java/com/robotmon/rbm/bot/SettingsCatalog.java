@@ -10,7 +10,7 @@ import java.util.List;
  * ranges). Entries whose original setting has no backing implementation in
  * this port (jpVersion, specialScreenRatio, autobuyBoxes, maxChain override,
  * handleLongSkillAnimations, unlockLevelHoursWait, tsumMonitorUrl,
- * tsumAppRestartFrequency, skillAutoTap, recordsenderEnlarge, debug toggles,
+ * tsumAppRestartFrequency, recordsenderEnlarge, debug toggles,
  * pauseWhencalc -- see README "What was intentionally not ported") are left
  * out rather than rendered as controls that would silently do nothing.
  *
@@ -70,7 +70,8 @@ public final class SettingsCatalog {
             SettingDef.number("skillWaitingTime", "Skill Waiting time (sec)", d.skillWaitingTimeSec, 1, 15, 1),
             SettingDef.number("skillLevel", "Skill Level", d.skillLevel, 1, 6, 1),
             SettingDef.dropdown("skillType", "Skill Type", d.skillType, SKILL_TYPE_KEYS, SKILL_TYPE_TITLES),
-            SettingDef.number("noSkillLastFeverSec", "No skill last fever seconds", d.noSkillLastFeverSec, 0, 10, 1)
+            SettingDef.number("noSkillLastFeverSec", "No skill last fever seconds", d.noSkillLastFeverSec, 0, 10, 1),
+            SettingDef.bool("skillAutoTap", "Auto Tap Skill", d.skillAutoTap)
         )));
 
         groups.add(new Group("Receive All Hearts", Arrays.asList(
