@@ -16,7 +16,7 @@ public class SwipeQueue {
     // Bounded so a scanner that runs ahead of the swipe consumer cannot pile
     // up stale swipes for a board state that no longer exists by the time
     // they'd be dispatched.
-    private static final int CAPACITY = 32;
+    private static final int CAPACITY = 10;
 
     private final BlockingQueue<SwipeTask> queue = new LinkedBlockingQueue<>(CAPACITY);
 

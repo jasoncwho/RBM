@@ -2,6 +2,8 @@ package com.robotmon.rbm.accessibility;
 
 import android.accessibilityservice.AccessibilityService; 
 import android. accessibilityservice.GestureDescription;
+import android.os.Handler;
+import android.os.HandlerThread;
 import android.util.Log;
 import android.view.accessibility.AccessibilityEvent;
 
@@ -24,16 +26,27 @@ public class RbmAccessibilityService extends AccessibilityService {
         return instance;
     }
 
+    private HandlerThread gestureCallbackThread;
+    private Handler gestureCallbackHandler;
+
     @Override
     protected void onServiceConnected() {
         super. onServiceConnected();
         instance = this;
+        gestureCallbackThread = new HandlerThread("GestureCallback");
+        gestureCallbackThread.start();
+        gestureCallbackHandler = new Handler(gestureCallbackThread.getLooper());
         Log.i(TAG, "Accessibility service connected");
     }
 
     @Override
     public void onDestroy() {
         instance = null;
+        if (gestureCallbackThread != null) {
+            gestureCallbackThread.quitSafely();
+            gestureCallbackThread = null;
+            gestureCallbackHandler = null;
+        }
         super. onDestroy();
     }
 
@@ -66,7 +79,7 @@ public class RbmAccessibilityService extends AccessibilityService {
             public void onCancelled (GestureDescription gestureDescription) {
                 latch.countDown();
             }
-        }, null);
+        }, gestureCallbackHandler);
 
         if (!accepted) {
             return false;

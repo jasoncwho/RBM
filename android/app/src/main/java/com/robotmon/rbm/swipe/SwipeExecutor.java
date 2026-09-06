@@ -28,6 +28,7 @@ public class SwipeExecutor {
 
     private final SwipeQueue queue;
     private final AtomicBoolean running = new AtomicBoolean(false);
+    private final AtomicBoolean paused = new AtomicBoolean(false);
     private Thread thread;
 
     private volatile Runnable postLinkHook;
@@ -58,11 +59,29 @@ public class SwipeExecutor {
         return running.get();
     }
 
+    public void pause() {
+        paused.set(true);
+        queue.clear();
+    }
+
+    public void resume() {
+        queue.clear();
+        paused.set(false);
+    }
+
+    public boolean isPaused() {
+        return paused.get();
+    }
     private void runLoop() {
         while (running.get()) {
             try {
+                if (paused.get()) {
+                    Thread.sleep(100);
+                    continue;
+                }
                 SwipeTask task = queue.poll(200, TimeUnit.MILLISECONDS);
                 if (task == null) { continue; }
+                if (paused.get()) { continue;}
                 dispatch(task);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();

@@ -27,6 +27,7 @@ import com.robotmon.rbm.MainActivity;
 import com.robotmon.rbm.RbmApp;
 import com.robotmon.rbm.SettingsActivity;
 import com.robotmon.rbm.capture.ScreenCaptureService;
+import com.robotmon.rbm.swipe.SwipeExecutor;
 
 /**
  * Foreground service that draws a small draggable cluster of 4 icon buttons
@@ -54,6 +55,7 @@ public class OverlayControlService extends Service {
     private WindowManager windowManager;
     private LinearLayout container;
     private WindowManager.LayoutParams layoutParams;
+    private TextView pauseIcon;
 
     @Nullable
     @Override
@@ -87,7 +89,8 @@ public class OverlayControlService extends Service {
         container.addView(buildIcon("\u25B6", Color.parseColor("#388E3C"), v ->
                 startActivity(new Intent(this, CapturePermissionActivity.class)
                         .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))));
-
+        pauseIcon = buildIcon("\u23F8", Color.parseColor("#F57C00"), v -> togglePause());
+        container.addView(pauseIcon);
         container.addView(buildIcon("\u25A0", Color.parseColor("#D32F2F"), v -> {
             closeRbmCompletely();
         }));
@@ -218,6 +221,20 @@ public class OverlayControlService extends Service {
         return Math.round(value * density);
     }
 
+    private void togglePause(){
+        SwipeExecutor executor = RbmApp.getSwipeExecutor();
+        boolean nowPaused = !executor.isPaused();
+        if(nowPaused){
+            executor.pause();
+            ScreenCaptureService.setPaused(true);
+        }else{
+            executor.resume();
+            ScreenCaptureService.setPaused(false);
+        }
+        if (pauseIcon != null) {
+            pauseIcon.setText(nowPaused ? "\u25B6" : "\u23F8");
+        }
+    }
     private void closeRbmCompletely() {
         try {
             RbmApp.getBotOrchestrator().stop();

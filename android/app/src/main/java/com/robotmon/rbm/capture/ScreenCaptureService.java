@@ -79,6 +79,16 @@ public class ScreenCaptureService extends Service {
     private GameCoordinateMapper coordinateMapper;
     private final DebugFrameSaver debugFrameSaver = new DebugFrameSaver();
     private volatile long lastCaptureAt = 0;
+    private static final java.util.concurrent.atomic.AtomicBoolean paused = 
+            new java.util.concurrent.atomic.AtomicBoolean(false);
+
+    public static void setPaused(boolean pause) {
+        paused.set(pause);
+    }
+    
+    public static boolean isPaused() {
+        return paused.get();
+    }
 
     @Override
     public void onCreate() {
@@ -180,6 +190,11 @@ public class ScreenCaptureService extends Service {
         Image image = reader.acquireLatestImage();
         if (image == null) {
             Log.w(TAG, "ImageReader callback had no image");
+            return;
+        }
+
+        if(paused.get()) {
+            image.close();
             return;
         }
 
